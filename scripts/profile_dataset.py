@@ -1,7 +1,12 @@
-
 from pathlib import Path
 
 import pandas as pd
+
+from sentinel.data import (
+    class_distribution,
+    inspect_dataset,
+    validate_dataset,
+)
 
 DATA_PATH = Path("data/raw/default of credit card clients.xls")
 TARGET = "default payment next month"
@@ -20,31 +25,46 @@ def main() -> None:
     # Normalize column names for consistent inspection.
     df.columns = [str(column).strip() for column in df.columns]
 
+    # Validate the target and the expected binary classification labels.
+    validate_dataset(
+        df,
+        TARGET,
+        allowed_target_values={0, 1},
+    )
+
+    # Generate reusable data-quality and target-distribution summaries.
+    profile = inspect_dataset(df)
+    distribution = class_distribution(df, TARGET)
+
     print("\n=== SENTINEL: DATASET PROFILE ===")
     print(f"File: {DATA_PATH}")
-    print(f"Rows: {len(df):,}")
-    print(f"Columns: {len(df.columns)}")
-    print(f"Duplicate rows: {df.duplicated().sum():,}")
-    print(f"Total missing cells: {df.isna().sum().sum():,}")
+    print(f"Rows: {profile['rows']:,}")
+    print(f"Columns: {profile['columns']}")
+    print(f"Duplicate rows: {profile['duplicate_rows']:,}")
+
+    total_missing = sum(
+        column["missing_count"]
+        for column in profile["columns_info"].values()
+    )
+    print(f"Total missing cells: {total_missing:,}")
 
     print("\n=== COLUMN NAMES AND TYPES ===")
-    print(df.dtypes.to_string())
+    for column, info in profile["columns_info"].items():
+        print(f"{column:<30} {info['dtype']}")
 
     print("\n=== MISSING VALUES BY COLUMN ===")
-    missing = df.isna().sum()
-    print(missing[missing > 0].to_string() if missing.any() else "None")
+    missing = {
+        column: info["missing_count"]
+        for column, info in profile["columns_info"].items()
+        if info["missing_count"] > 0
+    }
+    print(missing if missing else "None")
 
-    if TARGET not in df.columns:
-        print("\nTarget column not found. Actual columns:")
-        print(df.columns.tolist())
-        raise ValueError(f"Expected target column {TARGET!r} is missing.")
+    print("\n=== ALL-MISSING COLUMNS ===")
+    print(profile["all_missing_columns"] or "None")
 
     print("\n=== TARGET DISTRIBUTION ===")
-    counts = df[TARGET].value_counts(dropna=False).sort_index()
-    print(counts.to_string())
-    print("\nTarget percentages:")
-    print((df[TARGET].value_counts(normalize=True, dropna=False) * 100)
-          .sort_index().round(2).to_string())
+    print(distribution.to_string(index=False))
 
     print("\n=== FIRST FIVE ROWS ===")
     print(df.head().to_string(index=False))
